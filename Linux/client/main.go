@@ -94,12 +94,8 @@ func main() {
 			}
 			log.Printf("Downstream: Decrypted packet: %d bytes\n", len(decryptedPacket))
 
-			// Prepend 4-byte header for Linux TUN
-			header := []byte{0x00, 0x00, 0x08, 0x00}
-			packetWithHeader := append(header, decryptedPacket...)
-
 			// Write the data received from the server back into our local OS
-			_, err = dev.Write([][]byte{packetWithHeader}, 4)
+			_, err = dev.Write([][]byte{decryptedPacket}, 0)
 			if err != nil {
 				log.Printf("Downstream: Error writing to TUN device: %v", err)
 			}
