@@ -1,14 +1,43 @@
 package main
 
+import (
+	"errors"
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
 // Windows/client/load_config.go
 // Configuration loading functions for Windows client build
 // Developer: CyberPanther232
 
-import "fmt"
+type ClientConfig struct {
+	ServerAddress string `yaml:"ServerAddress"`
+	ServerPort    int    `yaml:"ServerPort"`
+	ClientKeyFile string `yaml:"ClientKeyFile"`
+}
 
-func loadConfig(path string) (string, error) {
-	// Placeholder implementation for loading configuration
-	// In a real implementation, this would read from a file and parse the configuration
-	fmt.Printf("Loading configuration from %s\n", path)
-	return "LoadedConfigData", nil
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func loadClientConfig(path string) (*ClientConfig, error) {
+	if !fileExists(path) {
+		return nil, errors.New("configuration file does not exist")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var config = &ClientConfig{}
+
+	err = yaml.Unmarshal(data, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
 }

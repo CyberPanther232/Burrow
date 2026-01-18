@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -18,44 +20,78 @@ func generateIdentity() (noise.DHKey, error) {
 	return suite.GenerateKeypair(nil)
 }
 
-func runServerHandshake(conn *net.UDPConn, serverKey noise.DHKey) (*noise.CipherState, *noise.CipherState, *net.UDPAddr, error) {
+func sendFramed(conn net.Conn, data []byte) error {
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
+	_, err := conn.Write(lenBuf)
+	if err != nil {
+		return err
+	}
+	_, err = conn.Write(data)
+	return err
+}
+
+func readFramed(conn net.Conn) ([]byte, error) {
+	lenBuf := make([]byte, 4)
+	_, err := io.ReadFull(conn, lenBuf)
+	if err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lenBuf)
+	data := make([]byte, length)
+	_, err = io.ReadFull(conn, data)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func runServerHandshake(conn net.Conn, serverKey noise.DHKey) (*noise.CipherState, *noise.CipherState, error) {
 	hs, err := noise.NewHandshakeState(noise.Config{
 		CipherSuite:   suite,
 		Random:        nil,
-		Pattern:       noise.HandshakeIK,
+		Pattern:       noise.HandshakeXX,
 		Initiator:     false,
 		StaticKeypair: serverKey,
 	})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create handshake state: %w", err)
+		return nil, nil, fmt.Errorf("failed to create handshake state: %w", err)
 	}
 
-	// 1. Read the client's first message
-	buf := make([]byte, 4096)
-	n, addr, err := conn.ReadFromUDP(buf)
+	// 1. Read the client's first message (e)
+	msg, err := readFramed(conn)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read from UDP: %w", err)
+		return nil, nil, fmt.Errorf("failed to read handshake message 1: %w", err)
 	}
-	log.Printf("Received handshake message from client: %d bytes\n", n)
-
-	// 2. Process the client's message
-	_, _, _, err = hs.ReadMessage(nil, buf[:n])
+	log.Printf("Received handshake message 1 from client: %d bytes\n", len(msg))
+	_, _, _, err = hs.ReadMessage(nil, msg)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read handshake message: %w", err)
+		return nil, nil, fmt.Errorf("failed to process handshake message 1: %w", err)
 	}
 
-	// 3. Write the response back to the client
-	res, sendCipher, recvCipher, err := hs.WriteMessage(nil, nil)
+	// 2. Write the second message (e, ee, s, es)
+	msg, _, _, err = hs.WriteMessage(nil, nil)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write handshake message: %w", err)
+		return nil, nil, fmt.Errorf("failed to write handshake message 2: %w", err)
 	}
-	log.Printf("Sending handshake message to client: %d bytes\n", len(res))
-	_, err = conn.WriteToUDP(res, addr)
+	log.Printf("Sending handshake message 2 to client: %d bytes\n", len(msg))
+	err = sendFramed(conn, msg)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write to UDP: %w", err)
+		return nil, nil, fmt.Errorf("failed to send handshake message 2: %w", err)
 	}
 
-	return sendCipher, recvCipher, addr, nil
+	// 3. Read the third message (s, se)
+	msg, err = readFramed(conn)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read handshake message 3: %w", err)
+	}
+	log.Printf("Received handshake message 3 from client: %d bytes\n", len(msg))
+	_, sendCipher, recvCipher, err := hs.ReadMessage(nil, msg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to process handshake message 3: %w", err)
+	}
+
+	return sendCipher, recvCipher, nil
 }
 
 func encryptPacket(cs *noise.CipherState, plaintext []byte) []byte {

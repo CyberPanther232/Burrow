@@ -21,6 +21,11 @@ func main() {
 
 	fmt.Println("Starting Windows VPN Server...")
 
+	config, err := loadServerConfig("server_config.yml")
+	if err != nil {
+		log.Fatalf("Failed to load server configuration: %v", err)
+	}
+
 	fmt.Println("Creating TUN interface...")
 	dev, err := tun.CreateTUN("BurrowNet", 1500)
 	if err != nil {
@@ -30,15 +35,23 @@ func main() {
 
 	// 1. Bring the interface up
 	cmd := exec.Command("netsh", "interface", "ip", "set", "address",
-		"name=BurrowNet", "static", "10.0.0.1", "255.255.255.0", "none")
+		"name=BurrowNet", "static", config.Address, "255.255.255.0", "none")
 	cmd.Run()
 	fmt.Println("VPN Interface is UP. Press Ctrl+C to stop.")
 
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 51820})
+	listener, err := net.Listen("tcp", ":"+fmt.Sprint(config.Port))
 	if err != nil {
-		log.Fatalf("Failed to listen on UDP: %v", err)
+		log.Fatalf("Failed to listen on TCP: %v", err)
+	}
+	defer listener.Close()
+
+	log.Println("Waiting for a client to connect...")
+	conn, err := listener.Accept()
+	if err != nil {
+		log.Fatalf("Failed to accept connection: %v", err)
 	}
 	defer conn.Close()
+	log.Printf("Client connected from %s\n", conn.RemoteAddr())
 
 	serverKey, err := loadKey()
 	if err != nil {
@@ -54,18 +67,13 @@ func main() {
 	}
 	log.Printf("Server public key: %x\n", serverKey.Public)
 
-	sendCipher, recvCipher, clientAddr, err := runServerHandshake(conn, serverKey)
+	sendCipher, recvCipher, err := runServerHandshake(conn, serverKey)
 	if err != nil {
 		log.Fatalf("Handshake failed: %v", err)
 	}
 
-	clientAddrChan := make(chan *net.UDPAddr, 1)
-	clientAddrChan <- clientAddr
-
-	go startListener(dev, conn, clientAddrChan, recvCipher)
-
-	// 2. Start the packet processor in a background goroutine
-	go handleConnections(dev, conn, clientAddrChan, sendCipher)
+	go startListener(dev, conn, recvCipher)
+	go handleConnections(dev, conn, sendCipher)
 
 	// 3. Wait for a termination signal
 	sigChan := make(chan os.Signal, 1)
