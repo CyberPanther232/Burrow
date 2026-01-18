@@ -27,7 +27,11 @@ func startListener(dev tun.Device, conn net.Conn, recvCipher *noise.CipherState)
 		}
 		log.Printf("Listener: Decrypted packet: %d bytes\n", len(decryptedPacket))
 
-		_, err = dev.Write([][]byte{decryptedPacket}, 0)
+		// Prepend 4-byte header for Linux TUN
+		header := []byte{0x00, 0x00, 0x08, 0x00}
+		packetWithHeader := append(header, decryptedPacket...)
+
+		_, err = dev.Write([][]byte{packetWithHeader}, 0)
 		if err != nil {
 			log.Printf("Listener: Error writing to TUN device: %v", err)
 		}

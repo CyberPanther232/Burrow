@@ -62,7 +62,7 @@ func main() {
 				}
 				log.Printf("Upstream: Raw packet: %d bytes\n", len(packetData))
 
-				encryptedPacket := encryptPacket(recvCipher, packetData)
+				encryptedPacket := encryptPacket(sendCipher, packetData)
 				log.Printf("Upstream: Encrypted packet: %d bytes\n", len(encryptedPacket))
 
 				err = sendFramed(conn, encryptedPacket)
@@ -83,14 +83,14 @@ func main() {
 			}
 			log.Printf("Downstream: Received %d bytes\n", len(ciphertext))
 
-			decryptedPacket, err := decryptPacket(sendCipher, ciphertext)
+			decryptedPacket, err := decryptPacket(recvCipher, ciphertext)
 			if err != nil {
 				log.Fatalf("Downstream: Failed to decrypt packet: %v", err)
 			}
 			log.Printf("Downstream: Decrypted packet: %d bytes\n", len(decryptedPacket))
 
 			// Write the data received from the server back into our local OS
-			_, err = dev.Write([][]byte{decryptedPacket}, 0)
+			_, err = dev.Write([][]byte{decryptedPacket}, 4)
 			if err != nil {
 				log.Printf("Downstream: Error writing to TUN device: %v", err)
 			}
