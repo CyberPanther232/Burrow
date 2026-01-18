@@ -31,7 +31,7 @@ func startListener(dev tun.Device, conn net.Conn, recvCipher *noise.CipherState)
 		header := []byte{0x00, 0x00, 0x08, 0x00}
 		packetWithHeader := append(header, decryptedPacket...)
 
-		_, err = dev.Write([][]byte{packetWithHeader}, 0)
+		_, err = dev.Write([][]byte{packetWithHeader}, 4)
 		if err != nil {
 			log.Printf("Listener: Error writing to TUN device: %v", err)
 		}
